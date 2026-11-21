@@ -52,18 +52,36 @@ class AssistantViewModel : ViewModel() {
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
     private var customUrl: String? = null
+    private var discoveredUrl: String? = null
+    private var lastResolve = 0L
+
+    private val discoveryUrl =
+        "https://raw.githubusercontent.com/Thaiduytan89/tro-ly-ao/main/backend-url.txt"
 
     fun setBackendUrl(url: String) {
         customUrl = url.trim().trimEnd('/').ifBlank { null }
     }
 
-    // Thử URL người dùng nhập trước, sau đó đến các URL mặc định.
+    private fun resolveRemoteUrl() {
+        val now = System.currentTimeMillis()
+        if (now - lastResolve < 60_000L && discoveredUrl != null) return
+        lastResolve = now
+        try {
+            val request = Request.Builder().url(discoveryUrl).build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val value = response.body?.string()?.trim().orEmpty()
+                    if (value.startsWith("https://")) discoveredUrl = value.trimEnd('/')
+                }
+            }
+        } catch (_: Exception) {
+            // Giữ URL cũ nếu không đọc được file cấu hình.
+        }
+    }
+
+    // Ưu tiên URL tự cập nhật, rồi URL người dùng nhập, cuối cùng là mặc định.
     private val backendUrls: List<String>
-        get() = listOfNotNull(customUrl) + listOf(
-            BuildConfig.BACKEND_URL,
-            "https://xeqos-2405-4802-901e-88e0-45c3-ec1f-7670-a2fc.run.pinggy-free.link",
-            "https://dd7b0517dbda43.app.lhr.life"
-        )
+        get() = listOfNotNull(discoveredUrl, customUrl) + listOf(BuildConfig.BACKEND_URL)
 
     fun send(rawText: String) {
         val text = rawText.trim()
@@ -122,6 +140,7 @@ class AssistantViewModel : ViewModel() {
     }
 
     private fun callBackend(text: String, context: String = ""): BackendResult {
+        resolveRemoteUrl()
         val payload = JSONObject()
             .put("message", text.ifBlank { "(agent step)" })
             .put("session_id", sessionId)
