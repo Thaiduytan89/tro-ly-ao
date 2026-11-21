@@ -18,11 +18,20 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Prepare Android SDK (dùng SDK có sẵn trên runner)
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          SDKMGR=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)
+          if [ -n "$SDKMGR" ]; then
+            yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+            "$SDKMGR" "platforms;android-35" "build-tools;35.0.0"
+          fi
 
       - name: Generate Gradle wrapper if missing
         working-directory: android
@@ -31,10 +40,6 @@ jobs:
             gradle wrapper --gradle-version 8.9
           fi
           chmod +x gradlew
-
-      - name: Point Gradle to Android SDK
-        working-directory: android
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Build debug APK
         working-directory: android
