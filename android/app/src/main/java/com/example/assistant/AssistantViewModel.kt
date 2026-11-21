@@ -37,6 +37,11 @@ class AssistantViewModel : ViewModel() {
 
     private val sessionId = "android-" + UUID.randomUUID().toString().take(8)
     private var nextId = 1L
+    private var agentSteps = 0
+
+    companion object {
+        private const val MAX_AGENT_STEPS = 12
+    }
 
     private val client = OkHttpClient.Builder()
         .callTimeout(30, TimeUnit.SECONDS)
@@ -47,6 +52,7 @@ class AssistantViewModel : ViewModel() {
         val text = rawText.trim()
         if (text.isEmpty() || _isThinking.value) return
 
+        agentSteps = 0
         _messages.value = _messages.value + ChatMessage(nextId++, text, true)
         _isThinking.value = true
 
@@ -72,6 +78,13 @@ class AssistantViewModel : ViewModel() {
     /** Gửi kết quả thao tác/màn hình cho LLM để nó quyết định bước tiếp theo. */
     fun sendContext(context: String) {
         if (context.isBlank()) return
+        if (agentSteps >= MAX_AGENT_STEPS) {
+            _messages.value = _messages.value + ChatMessage(
+                nextId++, "Mình đã dừng sau $MAX_AGENT_STEPS bước để tránh chạy loop. Bạn muốn tiếp tục không?", false
+            )
+            return
+        }
+        agentSteps++
         viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { callBackend("", context) }
