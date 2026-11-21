@@ -41,6 +41,10 @@ jobs:
           fi
           chmod +x gradlew
 
+      - name: Restore fixed debug keystore
+        working-directory: android
+        run: base64 -d app/debug.keystore.b64 > app/debug.keystore
+
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --stacktrace

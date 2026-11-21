@@ -50,7 +50,7 @@ def collect_files() -> dict[str, Path]:
             continue
         if any(part in skip_dirs for part in path.relative_to(ROOT).parts):
             continue
-        if path.name.endswith((".pyc", ".apk")) or path.name in {"local.properties", ".env"}:
+        if path.name.endswith((".pyc", ".apk", ".keystore")) or path.name in {"local.properties", ".env"}:
             continue
         if ".github/workflows/" in path.as_posix() and os.environ.get("ALLOW_WORKFLOW") != "1":
             continue
