@@ -15,9 +15,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Giả lập: 10.0.2.2 trỏ về máy chạy backend.
-        // Khi chạy trên điện thoại thật, đổi thành IP LAN của máy tính, ví dụ 192.168.1.10.
-        buildConfigField("String", "BACKEND_URL", "\"http://10.0.2.2:8000\"")
+        // Chạy trên chính thiết bị: backend trong OpenCode dùng chung loopback.
+        // Nếu chạy backend trên máy tính khác cùng WiFi, đổi thành IP LAN của máy đó.
+        buildConfigField("String", "BACKEND_URL", "\"http://127.0.0.1:8000\"")
     }
 
     buildTypes {
