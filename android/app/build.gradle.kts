@@ -20,9 +20,25 @@ android {
         buildConfigField("String", "BACKEND_URL", "\"http://127.0.0.1:8000\"")
     }
 
+    // Keystore cố định trong repo: mọi lần build GitHub dùng cùng một chữ ký,
+    // nên APK mới cài đè (update) được lên bản cũ.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storeType = "pkcs12"
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

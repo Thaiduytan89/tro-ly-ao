@@ -85,12 +85,21 @@ def main() -> None:
 
     tree_entries = []
     for name, path in files.items():
+        raw = path.read_bytes()
+        try:
+            content = raw.decode("utf-8")
+            entry = {"content": content}
+        except UnicodeDecodeError:
+            entry = {
+                "content": base64.b64encode(raw).decode(),
+                "encoding": "base64",
+            }
         tree_entries.append(
             {
                 "path": name,
                 "mode": "100644",
                 "type": "blob",
-                "content": path.read_text(encoding="utf-8"),
+                **entry,
             }
         )
         print(f"   + {name}")
