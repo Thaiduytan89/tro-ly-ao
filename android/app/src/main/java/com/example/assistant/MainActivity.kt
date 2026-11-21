@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,9 +43,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -54,6 +59,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -78,6 +84,7 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
 
     private val vm: AssistantViewModel by viewModels()
+    private val prefs by lazy { getSharedPreferences("assistant", MODE_PRIVATE) }
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
@@ -111,6 +118,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        vm.setBackendUrl(prefs.getString("backend_url", "").orEmpty())
 
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
@@ -141,7 +149,14 @@ class MainActivity : ComponentActivity() {
                     onOpenSettings = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
-                    onCopy = { text -> copyToClipboard(text) }
+                    onCopy = { text -> copyToClipboard(text) },
+                    onStartOverlay = { startOverlay() },
+                    currentUrl = prefs.getString("backend_url", "").orEmpty(),
+                    onSaveUrl = { url ->
+                        prefs.edit().putString("backend_url", url.trim()).apply()
+                        vm.setBackendUrl(url)
+                        Toast.makeText(this, "Đã lưu địa chỉ backend", Toast.LENGTH_SHORT).show()
+                    }
                 )
             }
         }
@@ -169,6 +184,31 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun startOverlay() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestDangerous.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            Toast.makeText(
+                this,
+                "Bật quyền Hiện trên các ứng dụng khác, rồi nhấn nút Popup lại",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        AssistantOverlayService.start(this)
+        Toast.makeText(this, "Đã bật popup agent", Toast.LENGTH_SHORT).show()
     }
 
     private fun copyToClipboard(text: String) {
@@ -257,7 +297,9 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAction(action: JSONObject) {
         val a11y = AssistantAccessibilityService.instance
-        when (action.optString("type")) {
+        val type = action.optString("type")
+        AssistantOverlayService.show("đang thực hiện: $type")
+        when (type) {
             "set_alarm" -> {
                 val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
                     putExtra(AlarmClock.EXTRA_HOUR, action.optInt("hour"))
@@ -411,9 +453,14 @@ fun AssistantScreen(
     onSend: (String) -> Unit,
     onMic: () -> Unit,
     onOpenSettings: () -> Unit,
-    onCopy: (String) -> Unit
+    onCopy: (String) -> Unit,
+    onStartOverlay: () -> Unit,
+    currentUrl: String,
+    onSaveUrl: (String) -> Unit
 ) {
     var input by remember { mutableStateOf("") }
+    var showUrlDialog by remember { mutableStateOf(false) }
+    var urlInput by remember { mutableStateOf(currentUrl) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(messages.size, isThinking) {
@@ -425,6 +472,12 @@ fun AssistantScreen(
             TopAppBar(
                 title = { Text("Trợ lý ảo") },
                 actions = {
+                    FilledIconButton(onClick = { showUrlDialog = true }) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Đổi địa chỉ backend")
+                    }
+                    FilledIconButton(onClick = onStartOverlay) {
+                        Icon(Icons.Filled.Visibility, contentDescription = "Bật popup agent")
+                    }
                     FilledIconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Cấp quyền điều khiển")
                     }
@@ -510,6 +563,35 @@ fun AssistantScreen(
                     Icon(Icons.Filled.Send, contentDescription = "Gửi")
                 }
             }
+        }
+
+        if (showUrlDialog) {
+            AlertDialog(
+                onDismissRequest = { showUrlDialog = false },
+                title = { Text("Địa chỉ backend") },
+                text = {
+                    Column {
+                        Text("Dán URL tunnel/cloud mới (bắt đầu bằng https://). Để trống để dùng mặc định.")
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = urlInput,
+                            onValueChange = { urlInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            placeholder = { Text("https://...") }
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        onSaveUrl(urlInput)
+                        showUrlDialog = false
+                    }) { Text("Lưu") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showUrlDialog = false }) { Text("Hủy") }
+                }
+            )
         }
     }
 }

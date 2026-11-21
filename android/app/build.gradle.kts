@@ -17,7 +17,7 @@ android {
 
         // Backend chạy trong môi trường OpenCode, công khai qua tunnel HTTPS.
         // Điện thoại không dùng 127.0.0.1 vì đó là chính nó.
-        buildConfigField("String", "BACKEND_URL", "\"https://dd7b0517dbda43.app.lhr.life\"")
+        buildConfigField("String", "BACKEND_URL", "\"https://pagoa-2405-4802-901e-88e0-45c3-ec1f-7670-a2fc.free.pinggy.net\"")
     }
 
     // Keystore cố định trong repo: mọi lần build GitHub dùng cùng một chữ ký,

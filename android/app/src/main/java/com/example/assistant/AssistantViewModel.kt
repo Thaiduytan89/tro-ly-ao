@@ -51,6 +51,20 @@ class AssistantViewModel : ViewModel() {
         .build()
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
+    private var customUrl: String? = null
+
+    fun setBackendUrl(url: String) {
+        customUrl = url.trim().trimEnd('/').ifBlank { null }
+    }
+
+    // Thử URL người dùng nhập trước, sau đó đến các URL mặc định.
+    private val backendUrls: List<String>
+        get() = listOfNotNull(customUrl) + listOf(
+            BuildConfig.BACKEND_URL,
+            "https://xeqos-2405-4802-901e-88e0-45c3-ec1f-7670-a2fc.run.pinggy-free.link",
+            "https://dd7b0517dbda43.app.lhr.life"
+        )
+
     fun send(rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || _isThinking.value) return
@@ -114,20 +128,28 @@ class AssistantViewModel : ViewModel() {
             .put("context", context)
             .toString()
 
-        val request = Request.Builder()
-            .url("${BuildConfig.BACKEND_URL}/chat")
-            .post(payload.toRequestBody(jsonMedia))
-            .build()
+        var lastError: Exception? = null
+        for (base in backendUrls) {
+            try {
+                val request = Request.Builder()
+                    .url("$base/chat")
+                    .post(payload.toRequestBody(jsonMedia))
+                    .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val body = response.body?.string().orEmpty()
-            val json = JSONObject(body)
-            return BackendResult(
-                reply = json.optString("reply", "Mình chưa có câu trả lời."),
-                action = json.optJSONObject("action")
-            )
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                    val body = response.body?.string().orEmpty()
+                    val json = JSONObject(body)
+                    return BackendResult(
+                        reply = json.optString("reply", "Mình chưa có câu trả lời."),
+                        action = json.optJSONObject("action")
+                    )
+                }
+            } catch (e: Exception) {
+                lastError = e
+            }
         }
+        throw lastError ?: IOException("Không có backend nào phản hồi")
     }
 
     private data class BackendResult(val reply: String, val action: JSONObject?)
