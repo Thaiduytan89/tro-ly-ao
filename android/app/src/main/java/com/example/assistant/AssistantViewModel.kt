@@ -44,7 +44,10 @@ class AssistantViewModel : ViewModel() {
     }
 
     private val client = OkHttpClient.Builder()
-        .callTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
         .build()
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
@@ -66,7 +69,7 @@ class AssistantViewModel : ViewModel() {
             } catch (e: Exception) {
                 _messages.value = _messages.value + ChatMessage(
                     nextId++,
-                    "Không kết nối được backend: ${e.message}. Kiểm tra IP trong BuildConfig.BACKEND_URL.",
+                    "Không kết nối được backend: ${e.message}. Kiểm tra mạng hoặc đường dẫn BACKEND_URL.",
                     false
                 )
             } finally {

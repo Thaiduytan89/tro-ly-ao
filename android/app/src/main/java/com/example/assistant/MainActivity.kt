@@ -2,6 +2,8 @@ package com.example.assistant
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -44,6 +48,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -135,7 +140,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onOpenSettings = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }
+                    },
+                    onCopy = { text -> copyToClipboard(text) }
                 )
             }
         }
@@ -163,6 +169,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(ClipData.newPlainText("Trợ lý ảo", text))
+        Toast.makeText(this, "Đã copy vào bộ nhớ", Toast.LENGTH_SHORT).show()
     }
 
     private fun startListening() {
@@ -398,12 +410,13 @@ fun AssistantScreen(
     partialText: String,
     onSend: (String) -> Unit,
     onMic: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onCopy: (String) -> Unit
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.size, isThinking) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
 
@@ -423,6 +436,7 @@ fun AssistantScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .imePadding()
         ) {
             LazyColumn(
                 modifier = Modifier
@@ -432,7 +446,7 @@ fun AssistantScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(messages) { message -> MessageBubble(message) }
+                items(messages) { message -> MessageBubble(message, onCopy) }
 
                 if (isThinking) {
                     item {
@@ -501,7 +515,7 @@ fun AssistantScreen(
 }
 
 @Composable
-fun MessageBubble(message: ChatMessage) {
+fun MessageBubble(message: ChatMessage, onCopy: (String) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
@@ -520,17 +534,32 @@ fun MessageBubble(message: ChatMessage) {
             },
             tonalElevation = 1.dp
         ) {
-            Text(
-                text = message.text,
-                color = if (message.isUser) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+            Column(
                 modifier = Modifier
                     .widthIn(max = 280.dp)
                     .padding(12.dp)
-            )
+            ) {
+                Text(
+                    text = message.text,
+                    color = if (message.isUser) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                if (!message.isUser && message.id != 0L) {
+                    IconButton(
+                        onClick = { onCopy(message.text) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.ContentCopy,
+                            contentDescription = "Copy nội dung",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

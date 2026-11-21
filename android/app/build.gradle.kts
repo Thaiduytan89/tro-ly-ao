@@ -15,9 +15,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Chạy trên chính thiết bị: backend trong OpenCode dùng chung loopback.
-        // Nếu chạy backend trên máy tính khác cùng WiFi, đổi thành IP LAN của máy đó.
-        buildConfigField("String", "BACKEND_URL", "\"http://127.0.0.1:8000\"")
+        // Backend chạy trong môi trường OpenCode, công khai qua tunnel HTTPS.
+        // Điện thoại không dùng 127.0.0.1 vì đó là chính nó.
+        buildConfigField("String", "BACKEND_URL", "\"https://dd7b0517dbda43.app.lhr.life\"")
     }
 
     // Keystore cố định trong repo: mọi lần build GitHub dùng cùng một chữ ký,
