@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Trợ lý ảo</string>
+    <string name="accessibility_desc">Cho phép trợ lý đọc màn hình và thực hiện chạm, gõ, cuộn để điều khiển ứng dụng giúp bạn.</string>
 </resources>

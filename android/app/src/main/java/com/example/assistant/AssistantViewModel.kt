@@ -69,14 +69,33 @@ class AssistantViewModel : ViewModel() {
         }
     }
 
+    /** Gửi kết quả thao tác/màn hình cho LLM để nó quyết định bước tiếp theo. */
+    fun sendContext(context: String) {
+        if (context.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { callBackend("", context) }
+                val reply = ChatMessage(nextId++, result.reply, false)
+                _messages.value = _messages.value + reply
+                _lastAssistantReply.value = reply
+                result.action?.let { _lastAction.value = it }
+            } catch (e: Exception) {
+                _messages.value = _messages.value + ChatMessage(
+                    nextId++, "Lỗi agent: ${e.message}", false
+                )
+            }
+        }
+    }
+
     fun clearAction() {
         _lastAction.value = null
     }
 
-    private fun callBackend(text: String): BackendResult {
+    private fun callBackend(text: String, context: String = ""): BackendResult {
         val payload = JSONObject()
-            .put("message", text)
+            .put("message", text.ifBlank { "(agent step)" })
             .put("session_id", sessionId)
+            .put("context", context)
             .toString()
 
         val request = Request.Builder()

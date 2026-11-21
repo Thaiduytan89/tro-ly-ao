@@ -41,6 +41,10 @@ Quy tắc:
   Bạn chỉ cần xác nhận với người dùng.
 - Nếu không có công cụ phù hợp (ví dụ thời tiết, tin tức), hãy nói rõ là chưa hỗ trợ
   thay vì bịa đặt dữ liệu.
+- Khi điều khiển ứng dụng (Facebook, Messenger, Zalo...), hãy tuân theo vòng lặp:
+  gọi ui_read để xem màn hình -> gọi ui_click/ui_type -> điện thoại sẽ gửi lại màn hình
+  mới trong "context" -> tiếp tục cho đến khi xong việc. Không đoán nội dung màn hình.
+- Trước các hành động nhạy cảm (gửi SMS, gọi điện), hãy xác nhận lại với người dùng.
 - Không bao giờ tiết lộ API key hay chi tiết kỹ thuật nội bộ.
 """
 
@@ -102,15 +106,142 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Tên ứng dụng, ví dụ: camera"},
+                    "query": {"type": "string", "description": "Tên ứng dụng, ví dụ: zalo"},
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ui_read",
+            "description": "Đọc nội dung màn hình hiện tại. Luôn gọi trước khi cần chạm vào một nút unfamiliar.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ui_click",
+            "description": "Chạm vào một nút/vùng trên màn hình theo nội dung chữ hoặc resource id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Chữ hiển thị trên nút cần chạm"},
+                    "id": {"type": "string", "description": "Resource id của nút (nếu có)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ui_type",
+            "description": "Gõ văn bản vào ô đang được focus (ví dụ ô tìm kiếm, ô nhắn tin).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string", "description": "Nội dung cần gõ"},
+                },
+                "required": ["value"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ui_scroll",
+            "description": "Cuộn màn hình xuống để xem thêm nội dung.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ui_back",
+            "description": "Bấm nút Back của Android.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ui_home",
+            "description": "Về màn hình chính.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_volume",
+            "description": "Chỉnh âm lượng media theo phần trăm.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "percent": {"type": "integer", "description": "0-100", "minimum": 0, "maximum": 100}
+                },
+                "required": ["percent"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_wifi_settings",
+            "description": "Mở màn hình cài đặt Wi-Fi.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_bluetooth_settings",
+            "description": "Mở màn hình cài đặt Bluetooth.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_sms",
+            "description": "Gửi SMS tới một số điện thoại.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string", "description": "Số điện thoại"},
+                    "body": {"type": "string", "description": "Nội dung tin nhắn"},
+                },
+                "required": ["phone", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "make_call",
+            "description": "Gọi điện tới một số điện thoại.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string", "description": "Số điện thoại"}
+                },
+                "required": ["phone"],
             },
         },
     },
 ]
 
 WEEKDAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+
+# Các công cụ được thực thi trên điện thoại (app nhận "action" rồi tự chạy).
+CLIENT_TOOLS = {
+    "ui_read", "ui_click", "ui_type", "ui_scroll", "ui_back", "ui_home",
+    "set_volume", "open_wifi_settings", "open_bluetooth_settings",
+    "send_sms", "make_call",
+}
 
 _BINOPS = {
     ast.Add: operator.add,
@@ -127,6 +258,7 @@ _UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     session_id: str = "default"
+    context: str = Field(default="", max_length=12000)
 
 
 class ChatResponse(BaseModel):
@@ -197,6 +329,9 @@ def run_tool(name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any] | Non
             return "Bạn muốn mở ứng dụng nào?", None
         return f"Đang mở {query}.", {"type": "open_app", "query": query}
 
+    if name in CLIENT_TOOLS:
+        return "Đã gửi lệnh điều khiển tới điện thoại.", {"type": name, **args}
+
     return f"Không biết công cụ {name}.", None
 
 
@@ -217,9 +352,11 @@ def build_client() -> tuple[Any | None, str | None, str]:
     return None, None, "demo"
 
 
-def llm_chat(client: Any, model: str, history: list[dict[str, str]], name: str) -> tuple[str, dict[str, Any] | None, str]:
+def llm_chat(client: Any, model: str, history: list[dict[str, str]], name: str, context: str = "") -> tuple[str, dict[str, Any] | None, str]:
     messages: list[Any] = [{"role": "system", "content": SYSTEM_PROMPT.format(name=name)}]
     messages.extend(history)
+    if context.strip():
+        messages.append({"role": "system", "content": "Kết quả thao tác/màn hình mới nhất từ điện thoại:\n" + context.strip()})
     action: dict[str, Any] | None = None
     provider = "gemini" if GEMINI_API_KEY else "openai"
 
@@ -274,6 +411,9 @@ def demo_chat(message: str, name: str) -> tuple[str, dict[str, Any] | None, str]
         hour = int(match.group(1)) if match else 7
         minute = int(match.group(2)) if match and int(match.group(2)) <= 59 else 0
         reply, action = run_tool("set_alarm", {"hour": hour, "minute": minute, "label": "Báo thức"})
+    elif re.search(r"facebook|messenger|zalo", text):
+        app = "zalo" if "zalo" in text else ("messenger" if "messenger" in text else "facebook")
+        reply, action = run_tool("open_app", {"query": app})
     elif text.startswith("mở ") or text.startswith("open "):
         query = re.sub(r"^(mở|open)\s+", "", text).strip(" .!?")
         reply, action = run_tool("open_app", {"query": query})
@@ -324,7 +464,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             reply, action, provider = demo_chat(request.message, ASSISTANT_NAME)
         else:
             reply, action, provider = await asyncio.to_thread(
-                llm_chat, client, model, snapshot, ASSISTANT_NAME
+                llm_chat, client, model, snapshot, ASSISTANT_NAME, request.context
             )
     except Exception as exc:
         reply, action, provider = f"Xin lỗi, mình gặp lỗi khi xử lý: {exc}", None, "error"

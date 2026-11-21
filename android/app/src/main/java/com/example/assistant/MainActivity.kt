@@ -1,10 +1,15 @@
 package com.example.assistant
 
 import android.Manifest
-import android.provider.AlarmClock
+import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.AlarmClock
+import android.provider.Settings
+import android.telephony.SmsManager
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -34,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -80,6 +86,24 @@ class MainActivity : ComponentActivity() {
         else Toast.makeText(this, "Cần cấp quyền microphone để nói chuyện", Toast.LENGTH_SHORT).show()
     }
 
+    private val requestDangerous = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results.values.any { !it }) {
+            Toast.makeText(this, "Một số quyền chưa được cấp", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private val appPackages = mapOf(
+        "facebook" to "com.facebook.katana",
+        "messenger" to "com.facebook.orca",
+        "zalo" to "com.zing.zalo",
+        "youtube" to "com.google.android.youtube",
+        "camera" to "com.android.camera2",
+        "clock" to "com.google.android.deskclock",
+        "gmail" to "com.google.android.gm"
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -108,6 +132,9 @@ class MainActivity : ComponentActivity() {
                     onMic = {
                         tts?.stop()
                         startListening()
+                    },
+                    onOpenSettings = {
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     }
                 )
             }
@@ -217,6 +244,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleAction(action: JSONObject) {
+        val a11y = AssistantAccessibilityService.instance
         when (action.optString("type")) {
             "set_alarm" -> {
                 val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
@@ -235,6 +263,7 @@ class MainActivity : ComponentActivity() {
 
             "open_app" -> {
                 val query = action.optString("query")
+                val pkg = appPackages[query.lowercase()] ?: query
                 val pm = packageManager
                 val launcherApps = pm.queryIntentActivities(
                     Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER),
@@ -243,15 +272,111 @@ class MainActivity : ComponentActivity() {
                 val match = launcherApps.firstOrNull { info ->
                     val label = info.loadLabel(pm).toString()
                     label.contains(query, true) ||
-                        info.activityInfo.packageName.contains(query, true)
+                        info.activityInfo.packageName.contains(pkg, true)
                 }
                 val launchIntent = match?.let { pm.getLaunchIntentForPackage(it.activityInfo.packageName) }
-                    ?: pm.getLaunchIntentForPackage(query)
+                    ?: pm.getLaunchIntentForPackage(pkg)
 
                 if (launchIntent != null) {
                     startActivity(launchIntent)
+                    vm.sendContext("Đã mở ứng dụng $query. Màn hình: ${a11y?.readScreen().orEmpty()}")
                 } else {
                     Toast.makeText(this, "Không tìm thấy ứng dụng: $query", Toast.LENGTH_SHORT).show()
+                    vm.sendContext("Không tìm thấy ứng dụng $query trên máy.")
+                }
+            }
+
+            "ui_read" -> {
+                val screen = a11y?.readScreen()
+                    ?: "Chưa bật quyền Accessibility. Nhấn nút bánh răng trên thanh tiêu đề để bật."
+                vm.sendContext("Màn hình hiện tại:\n$screen")
+            }
+
+            "ui_click" -> {
+                val id = action.optString("id")
+                val text = action.optString("text")
+                val ok = when {
+                    id.isNotBlank() -> a11y?.clickId(id) == true
+                    text.isNotBlank() -> a11y?.clickText(text) == true
+                    else -> false
+                }
+                vm.sendContext(
+                    "Đã chạm ${if (ok) "thành công" else "thất bại"}. " +
+                        "Màn hình sau: ${a11y?.readScreen().orEmpty()}"
+                )
+            }
+
+            "ui_type" -> {
+                val ok = a11y?.typeText(action.optString("value")) == true
+                vm.sendContext(
+                    "Đã gõ ${if (ok) "thành công" else "thất bại"}. " +
+                        "Màn hình sau: ${a11y?.readScreen().orEmpty()}"
+                )
+            }
+
+            "ui_scroll" -> {
+                val ok = a11y?.scrollForward() == true
+                vm.sendContext("Đã cuộn ${if (ok) "thành công" else "thất bại"}. " +
+                    "Màn hình sau: ${a11y?.readScreen().orEmpty()}")
+            }
+
+            "ui_back" -> {
+                a11y?.pressBack()
+                vm.sendContext("Đã bấm Back. Màn hình sau: ${a11y?.readScreen().orEmpty()}")
+            }
+
+            "ui_home" -> {
+                a11y?.pressHome()
+                vm.sendContext("Đã về màn hình chính.")
+            }
+
+            "set_volume" -> {
+                val percent = action.optInt("percent", 50).coerceIn(0, 100)
+                val audio = getSystemService(AudioManager::class.java)
+                val max = audio?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
+                audio?.setStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    (max * percent / 100f).toInt(),
+                    0
+                )
+                vm.sendContext("Đã chỉnh âm lượng thành $percent%.")
+            }
+
+            "open_wifi_settings" -> startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            "open_bluetooth_settings" -> startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+
+            "send_sms" -> {
+                val phone = action.optString("phone")
+                val body = action.optString("body")
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestDangerous.launch(arrayOf(Manifest.permission.SEND_SMS))
+                    vm.sendContext("Cần cấp quyền gửi SMS trước.")
+                } else {
+                    try {
+                        SmsManager.getDefault().sendTextMessage(phone, null, body, null, null)
+                        vm.sendContext("Đã gửi SMS tới $phone.")
+                    } catch (e: Exception) {
+                        vm.sendContext("Gửi SMS thất bại: ${e.message}")
+                    }
+                }
+            }
+
+            "make_call" -> {
+                val phone = action.optString("phone")
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestDangerous.launch(arrayOf(Manifest.permission.CALL_PHONE))
+                    vm.sendContext("Cần cấp quyền gọi điện trước.")
+                } else {
+                    try {
+                        startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")))
+                        vm.sendContext("Đang gọi $phone.")
+                    } catch (e: Exception) {
+                        vm.sendContext("Gọi điện thất bại: ${e.message}")
+                    }
                 }
             }
         }
@@ -272,7 +397,8 @@ fun AssistantScreen(
     listening: Boolean,
     partialText: String,
     onSend: (String) -> Unit,
-    onMic: () -> Unit
+    onMic: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -282,7 +408,16 @@ fun AssistantScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Trợ lý ảo") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("Trợ lý ảo") },
+                actions = {
+                    FilledIconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Cấp quyền điều khiển")
+                    }
+                }
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
